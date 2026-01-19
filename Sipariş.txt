@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Ortak Sipariş Sistemi</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{font-family:Arial;background:#eee;padding:10px}
+.card{background:#fff;padding:15px;border-radius:10px;max-width:500px;margin:auto}
+input,select,button{width:100%;padding:10px;margin-top:8px;font-size:15px}
+button{border:none;border-radius:6px;color:#fff}
+.login{background:#333}
+.add{background:#1976d2}
+.save{background:#2e7d32}
+.clear{background:#c62828}
+.wa{background:#25d366}
+.item{border:1px solid #ddd;padding:10px;margin-top:10px;border-radius:6px}
+.order{border-bottom:1px dashed #ccc;padding:6px 0;font-size:14px}
+.total{font-weight:bold;text-align:center;margin-top:10px}
+</style>
+</head>
+
+<body>
+
+<div class="card" id="loginBox">
+<h2>🔒 Giriş</h2>
+<input id="pass" type="password" placeholder="Şifre">
+<button class="login" onclick="login()">Giriş</button>
+</div>
+
+<div class="card" id="app" style="display:none">
+<h2>📦 Ortak Sipariş</h2>
+
+<input id="customer" placeholder="İsim / Şube">
+
+<div id="items"></div>
+<button class="add" onclick="addItem()">➕ Ürün Ekle</button>
+
+<div class="total">
+Toplam Kg: <span id="kgTotal">0</span> |
+Toplam Adet: <span id="adetTotal">0</span>
+</div>
+
+<button class="save" onclick="saveOrder()">💾 Siparişi Kaydet</button>
+<button class="wa" onclick="sendWA()">📲 WhatsApp’tan Gönder</button>
+<button class="clear" onclick="clearOrders()">🗑️ Tüm Siparişleri Sil</button>
+
+<hr>
+<h3>📋 Siparişler</h3>
+<div id="orders"></div>
+</div>
+
+<script>
+const BIN_ID = "696dfab7d0ea881f4075b9a8";
+const MASTER_KEY = "$2a$10$ze2fKA7ejuDI/zkMVFwgA..2tG/eSJMfRn6QzlH85ktarzLTshMCe";
+const PASSWORD = "1234";
+const WA_PHONE = "905433553177";
+
+const API_URL = "https://api.jsonbin.io/v3/b/" + BIN_ID;
+
+const products=[
+"Ayran","Çiğ Köfte","Dürüm",
+"Marul","Salatalık","Mor Lahana","Havuç",
+"Limon","Domates","Maydanoz","Roka","Nane"
+];
+
+function login(){
+if(pass.value===PASSWORD){
+loginBox.style.display="none";
+app.style.display="block";
+loadOrders();
+}else alert("Şifre yanlış");
+}
+
+function addItem(){
+const d=document.createElement("div");
+d.className="item";
+d.innerHTML=`
+<select class="product">
+<option value="">Ürün</option>
+${products.map(p=>`<option>${p}</option>`).join("")}
+</select>
+<input type="number" class="qty" placeholder="Miktar" oninput="calc()">
+<select class="unit" onchange="calc()">
+<option>Kg</option><option>Adet</option>
+</select>
+<button style="background:#555;margin-top:5px" onclick="this.parentElement.remove();calc()">Sil</button>
+`;
+items.appendChild(d);
+}
+addItem();
+
+function calc(){
+let kg=0,adet=0;
+document.querySelectorAll(".item").forEach(i=>{
+const q=Number(i.querySelector(".qty").value);
+if(!q) return;
+i.querySelector(".unit").value==="Kg"?kg+=q:adet+=q;
+});
+kgTotal.innerText=kg;
+adetTotal.innerText=adet;
+}
+
+function loadOrders(){
+fetch(API_URL,{
+headers:{"X-Master-Key":MASTER_KEY}
+})
+.then(r=>r.json())
+.then(r=>{
+const d=r.record;
+orders.innerHTML=d.orders.map(o=>`
+<div class="order">
+<b>${o.name}</b><br>
+${o.items}<br>
+<small>${o.time} | Kg:${o.kg} Adet:${o.adet}</small>
+</div>
+`).join("");
+});
+}
+
+function saveOrder(){
+if(!customer.value.trim()) return alert("İsim yaz");
+const list=[];
+document.querySelectorAll(".item").forEach(i=>{
+const p=i.querySelector(".product").value;
+const q=i.querySelector(".qty").value;
+const u=i.querySelector(".unit").value;
+if(p&&q) list.push(`${p} ${q} ${u}`);
+});
+if(!list.length) return alert("Ürün gir");
+
+fetch(API_URL,{
+headers:{"X-Master-Key":MASTER_KEY}
+})
+.then(r=>r.json())
+.then(r=>{
+const d=r.record;
+d.orders.push({
+name:customer.value.trim(),
+items:list.join(" | "),
+kg:kgTotal.innerText,
+adet:adetTotal.innerText,
+time:new Date().toLocaleString()
+});
+fetch(API_URL,{
+method:"PUT",
+headers:{
+"Content-Type":"application/json",
+"X-Master-Key":MASTER_KEY
+},
+body:JSON.stringify(d)
+}).then(()=>{
+customer.value="";
+items.innerHTML="";
+addItem();
+loadOrders();
+});
+});
+}
+
+function clearOrders(){
+if(confirm("TÜM SİPARİŞLER SİLİNSİN Mİ?")){
+fetch(API_URL,{
+method:"PUT",
+headers:{
+"Content-Type":"application/json",
+"X-Master-Key":MASTER_KEY
+},
+body:JSON.stringify({orders:[]})
+}).then(()=>loadOrders());
+}
+}
+
+function sendWA(){
+fetch(API_URL,{
+headers:{"X-Master-Key":MASTER_KEY}
+})
+.then(r=>r.json())
+.then(r=>{
+const d=r.record;
+if(!d.orders.length) return alert("Sipariş yok");
+let t="📦 SİPARİŞLER\n\n";
+d.orders.forEach(o=>{
+t+=`${o.name}\n${o.items}\nKg:${o.kg} Adet:${o.adet}\n${o.time}\n\n`;
+});
+window.open("https://wa.me/"+WA_PHONE+"?text="+encodeURIComponent(t),"_blank");
+});
+}
+</script>
+
+</body>
+</html>
